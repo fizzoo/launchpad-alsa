@@ -16,6 +16,50 @@ import           Text.Printf                      (printf)
 
 type Mode = S.T S.DuplexMode
 
+data Intensity = Off | Low | Med | High deriving (Show)
+data Color = RG Intensity Intensity deriving (Show)
+
+intensityToNum :: Intensity -> Word8
+intensityToNum x = case x of
+  Off  -> 0
+  Low  -> 1
+  Med  -> 2
+  High -> 3
+
+colorToCode :: Color -> Word8
+colorToCode (RG r g) = intensityToNum r + 16 * intensityToNum g + 12
+
+allColors = [RG r g | let l = [Off, Low, Med, High], r <- l, g <- l]
+nicepattern = zip allColors [(x, y) | x <- [0..3], y <- [0..3]]
+nicepatternx2 = nicepattern ++ map (\(c, (x, y)) -> (c, (7-x, 7-y))) nicepattern
+nicepatternx4 = nicepatternx2 ++ map (\(c, (x, y)) -> (c, (7-x, y))) nicepatternx2
+nicemessage = map (\(c, (x, y)) -> messageToData $ LED c x y) nicepatternx4
+donicething = mapM_ test nicemessage
+
+green :: Color
+green = RG Off High
+
+red :: Color
+red = RG High Off
+
+off :: Color
+off = RG Off Off
+
+-- x between 0, 8, inclusive. 8 is scene buttons. No mapping for the top buttons afaik.
+grid x y = 16 * x + y
+allgrid = [grid x y | x <- [0..7], y <- [0..7]] :: [Word8]
+
+-- The acceptable messages
+-- Todo control double-buff/flashing
+-- https://d19ulaff0trnck.cloudfront.net/sites/default/files/novation/downloads/4080/launchpad-programmers-reference.pdf
+data Message = LED Color Word8 Word8 | Reset
+
+arbData :: Word8 -> Word8 -> Word8 -> E.Data
+arbData a b c = E.NoteEv E.NoteOn $ E.simpleNote (E.Channel a) (E.Pitch b) (E.Velocity c)
+
+
+messageToData (LED col x y) = arbData 144 (grid x y) (colorToCode col)
+messageToData Reset         = arbData 176 0 0
 
 -- List all the clients for debug
 listClients :: IO ()
@@ -43,26 +87,16 @@ findLaunchpad h = do
 
 
 
-lupvel :: Word8 -> Word8 -> Word8 -> E.Note
-lupvel a b c = E.simpleNote (E.Channel a) (E.Pitch b) (E.Velocity c)
 
-on :: E.Note -> E.Data
-on = E.NoteEv E.NoteOn
-off :: E.Note -> E.Data
-off = E.NoteEv E.NoteOff
-
-
-
-
-test :: Word8 -> Word8 -> Word8 -> IO ()
-test a b d =
+test :: E.Data -> IO ()
+test eData =
   S.withDefault S.Block $ \h -> -- Initialize our client, h is Mode
     P.withSimple h "self" (P.caps [P.capRead, P.capSubsRead]) P.typeMidiGeneric $ \selfP -> do --port for self
       maybePinfo <- findLaunchpad h
       let pinfo = fromJust maybePinfo -- info of launchpad
       addr <- PortInfo.getAddr pinfo
       conn <- Conn.createTo h selfP addr
-      _ <- E.outputDirect (h :: Mode) (E.forConnection conn (on $ lupvel a b d ))
+      _ <- E.outputDirect (h :: Mode) (E.forConnection conn eData)
       return ()
 
-main = test 176 0 126
+main = test $ arbData 176 0 0
