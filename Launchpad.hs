@@ -1,5 +1,5 @@
 import           Control.Applicative              ((<$>))
-import           Control.Monad                    (join, liftM4, unless)
+import           Control.Monad                    (join, liftM4)
 import           Data.Maybe                       (catMaybes, fromJust,
                                                    listToMaybe)
 import           Data.Word
@@ -27,7 +27,7 @@ intensityToNum x = case x of
   High -> 3
 
 colorToCode :: Color -> Word8
-colorToCode (RG r g) = intensityToNum r + 16 * intensityToNum g + 12
+colorToCode (RG r g) = intensityToNum r + 16 * intensityToNum g
 
 allColors = [RG r g | let l = [Off, Low, Med, High], r <- l, g <- l]
 nicepattern = zip allColors [(x, y) | x <- [0..3], y <- [0..3]]
@@ -52,14 +52,18 @@ allgrid = [grid x y | x <- [0..7], y <- [0..7]] :: [Word8]
 -- The acceptable messages
 -- Todo control double-buff/flashing
 -- https://d19ulaff0trnck.cloudfront.net/sites/default/files/novation/downloads/4080/launchpad-programmers-reference.pdf
-data Message = LED Color Word8 Word8 | Reset
+data Message = LED Color Word8 Word8 | Reset | Flip0 | Flip1
 
-arbData :: Word8 -> Word8 -> Word8 -> E.Data
-arbData a b c = E.NoteEv E.NoteOn $ E.simpleNote (E.Channel a) (E.Pitch b) (E.Velocity c)
+-- reset/flip doesnt work. Might be due to reconnecting thing.
+noteData :: Word8 -> Word8 -> E.Data
+noteData x y = E.NoteEv E.NoteOn $ E.simpleNote (E.Channel 144) (E.Pitch x) (E.Velocity y)
+ctrlData x     = E.NoteEv E.NoteOn $ E.simpleNote (E.Channel 176) (E.Pitch 0) (E.Velocity x)
+-- ctrlData x     = E.CtrlEv E.ChanPress $ E.Ctrl (E.Channel 1) (E.Parameter 0) (E.Value x)
 
-
-messageToData (LED col x y) = arbData 144 (grid x y) (colorToCode col)
-messageToData Reset         = arbData 176 0 0
+messageToData (LED col x y) = noteData (grid x y) (colorToCode col)
+messageToData Reset         = ctrlData 0
+messageToData Flip0         = ctrlData 49
+messageToData Flip1         = ctrlData 52
 
 -- List all the clients for debug
 listClients :: IO ()
@@ -88,6 +92,7 @@ findLaunchpad h = do
 
 
 
+-- Obviously not good, reconnecting every time
 test :: E.Data -> IO ()
 test eData =
   S.withDefault S.Block $ \h -> -- Initialize our client, h is Mode
@@ -99,4 +104,4 @@ test eData =
       _ <- E.outputDirect (h :: Mode) (E.forConnection conn eData)
       return ()
 
-main = test $ arbData 176 0 0
+main = test $ noteData 0 0
