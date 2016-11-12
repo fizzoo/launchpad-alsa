@@ -2,16 +2,18 @@ module Launchpad where
 
 import           Control.Applicative              ((<$>))
 import           Control.Monad                    (join, liftM4)
-import           Data.Maybe                       (fromJust, isJust)
+import           Data.Maybe                       (catMaybes, listToMaybe)
 import qualified Sound.ALSA.Sequencer             as S
 import qualified Sound.ALSA.Sequencer.Client      as C
 import qualified Sound.ALSA.Sequencer.Client.Info as ClientInfo
+import qualified Sound.ALSA.Sequencer.Event       as E
 import qualified Sound.ALSA.Sequencer.Port        as P
 import qualified Sound.ALSA.Sequencer.Port.Info   as PortInfo
 import           Text.Printf                      (printf)
 
 
 type Mode = S.T S.DuplexMode
+
 
 -- List all the clients for debug
 listClients :: IO ()
@@ -27,7 +29,8 @@ listClients = do
           (ClientInfo.getName cinfo)
           (PortInfo.getName pinfo)
 
-findLaunchpad :: IO (C.T, P.T)
+-- Finds the launchpad if it exists
+findLaunchpad :: IO (Maybe (C.T, P.T))
 findLaunchpad = do
   l <- S.withDefault S.Block $ \h ->
     ClientInfo.queryLoop (h :: Mode) $ \cinfo -> do
@@ -37,4 +40,5 @@ findLaunchpad = do
         c <- PortInfo.getClient pinfo
         port <- PortInfo.getPort pinfo
         return $ if name == "Launchpad" then Just (c, port) else Nothing
-  return . fromJust . head $ filter isJust (concat l)
+  return . listToMaybe $ catMaybes (concat l)
+
