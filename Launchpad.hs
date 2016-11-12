@@ -1,7 +1,8 @@
 import           Control.Applicative              ((<$>))
-import           Control.Monad                    (join, liftM4)
+import           Control.Monad                    (join, liftM4, unless)
 import           Data.Maybe                       (catMaybes, fromJust,
                                                    listToMaybe)
+import           Data.Word
 import qualified Sound.ALSA.Sequencer             as S
 import qualified Sound.ALSA.Sequencer.Address     as A
 import qualified Sound.ALSA.Sequencer.Client      as C
@@ -30,45 +31,38 @@ listClients = do
           (ClientInfo.getName cinfo)
           (PortInfo.getName pinfo)
 
--- Finds the launchpad if it exists
-findLaunchpad :: IO (Maybe (C.T, P.T))
-findLaunchpad = do
-  l <- S.withDefault S.Block $ \h ->
-    ClientInfo.queryLoop (h :: Mode) $ \cinfo -> do
+-- Finds the launchpad if it exists, by our client handle h
+findLaunchpad :: Mode -> IO (Maybe PortInfo.T)
+findLaunchpad h = do
+  l <- ClientInfo.queryLoop (h :: Mode) $ \cinfo -> do
       client <- ClientInfo.getClient cinfo
       PortInfo.queryLoop h client $ \pinfo -> do
         name <- ClientInfo.getName cinfo
-        c <- PortInfo.getClient pinfo
-        port <- PortInfo.getPort pinfo
-        return $ if name == "Launchpad" then Just (c, port) else Nothing
+        return $ if name == "Launchpad" then Just pinfo else Nothing
   return . listToMaybe $ catMaybes (concat l)
 
 
 
-lightupnote :: E.Note
-lightupnote = E.simpleNote (E.Channel 144) (E.Pitch 17) (E.Velocity 0x3)
+lupvel :: Word8 -> Word8 -> Word8 -> E.Note
 lupvel a b c = E.simpleNote (E.Channel a) (E.Pitch b) (E.Velocity c)
+
 on :: E.Note -> E.Data
 on = E.NoteEv E.NoteOn
+off :: E.Note -> E.Data
 off = E.NoteEv E.NoteOff
 
 
 
 
-test a b d = do
-  S.withDefault S.Block $ \h -> do --client
-    selfC <- C.getId h
+test :: Word8 -> Word8 -> Word8 -> IO ()
+test a b d =
+  S.withDefault S.Block $ \h -> -- Initialize our client, h is Mode
     P.withSimple h "self" (P.caps [P.capRead, P.capSubsRead]) P.typeMidiGeneric $ \selfP -> do --port for self
-      ClientInfo.queryLoop_ (h :: Mode) $ \cinfo -> do -- other client
-        client <- ClientInfo.getClient cinfo
-        PortInfo.queryLoop_ h client $ \pinfo -> do -- other port
-          name <- ClientInfo.getName cinfo
-          if name /= "Launchpad" then return () else do
-            c <- PortInfo.getClient pinfo
-            p <- PortInfo.getPort pinfo
-            addr <- PortInfo.getAddr pinfo
-            conn <- Conn.createTo h selfP addr
-            E.outputDirect (h :: Mode) (E.forConnection conn (on $ lupvel a b d ))
-            return ()
+      maybePinfo <- findLaunchpad h
+      let pinfo = fromJust maybePinfo -- info of launchpad
+      addr <- PortInfo.getAddr pinfo
+      conn <- Conn.createTo h selfP addr
+      _ <- E.outputDirect (h :: Mode) (E.forConnection conn (on $ lupvel a b d ))
+      return ()
 
 main = test 176 0 126
