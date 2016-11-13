@@ -34,7 +34,11 @@ nicepattern = zip allColors [(x, y) | x <- [0..3], y <- [0..3]]
 nicepatternx2 = nicepattern ++ map (\(c, (x, y)) -> (c, (7-x, 7-y))) nicepattern
 nicepatternx4 = nicepatternx2 ++ map (\(c, (x, y)) -> (c, (7-x, y))) nicepatternx2
 nicemessage = map (\(c, (x, y)) -> messageToData $ LED c x y) nicepatternx4
-donicething = mapM_ test nicemessage
+donicething = \h conn -> (mapM_ (sendData h conn) nicemessage)
+reset = \h conn -> (mapM_ (sendData h conn . messageToData) [LED off x y | x <- [0..7], y <- [0..7]])
+
+sendreset = \h conn -> (sendData h conn . messageToData $ Reset) >> return ()
+allled = \h conn -> sendData h conn (ctrlData 125) >> return ()
 
 green :: Color
 green = RG Off High
@@ -46,7 +50,15 @@ off :: Color
 off = RG Off Off
 
 -- x between 0, 8, inclusive. 8 is scene buttons. No mapping for the top buttons afaik.
-grid x y = 16 * x + y
+
+grid ::  Word8 -> Word8 -> Word8
+grid x y | x > 7 || y > 7 = error "Button outside bounds [0..7]"
+grid x y = 16 * y + x
+
+side :: Word8 -> Word8
+side y = 16 * y + 8
+
+allgrid :: [Word8]
 allgrid = [grid x y | x <- [0..7], y <- [0..7]] :: [Word8]
 
 -- The acceptable messages
@@ -60,6 +72,7 @@ noteData x y = E.NoteEv E.NoteOn $ E.simpleNote (E.Channel 144) (E.Pitch x) (E.V
 ctrlData x     = E.NoteEv E.NoteOn $ E.simpleNote (E.Channel 176) (E.Pitch 0) (E.Velocity x)
 -- ctrlData x     = E.CtrlEv E.ChanPress $ E.Ctrl (E.Channel 1) (E.Parameter 0) (E.Value x)
 
+messageToData :: Message -> E.Data
 messageToData (LED col x y) = noteData (grid x y) (colorToCode col)
 messageToData Reset         = ctrlData 0
 messageToData Flip0         = ctrlData 49
@@ -91,17 +104,22 @@ findLaunchpad h = do
 
 
 
+sendData h conn eData = E.outputDirect (h :: Mode) (E.forConnection conn eData)
 
--- Obviously not good, reconnecting every time
-test :: E.Data -> IO ()
-test eData =
+-- Finds the launchpad, and executes f with a client handle and
+-- connection. Could be used for one-shots, but it recreates a client
+-- and gets the connection with each call. Compose your main to use
+-- the given parameters instead, in order to keep it open.
+withLaunchpad :: (S.T S.DuplexMode -> Conn.T -> IO ()) -> IO ()
+withLaunchpad f =
   S.withDefault S.Block $ \h -> -- Initialize our client, h is Mode
     P.withSimple h "self" (P.caps [P.capRead, P.capSubsRead]) P.typeMidiGeneric $ \selfP -> do --port for self
       maybePinfo <- findLaunchpad h
       let pinfo = fromJust maybePinfo -- info of launchpad
       addr <- PortInfo.getAddr pinfo
       conn <- Conn.createTo h selfP addr
-      _ <- E.outputDirect (h :: Mode) (E.forConnection conn eData)
+      f h conn
       return ()
 
-main = test $ noteData 0 0
+
+main = return ()
