@@ -106,11 +106,14 @@ intensityToNum x = case x of
   Med  -> 2
   High -> 3
 
+-- | Creates the launchpad color code for the input color.
 colorToCode :: Color -> Word8
 colorToCode (RG r g) = intensityToNum r + 16 * intensityToNum g
 
 -- * Extras & Examples
 
+-- | Type that withLaunchpad accepts, an IO action that also uses the
+-- created handle and connection.
 type App = ALSA.T ALSA.DuplexMode -> Connect.T -> IO ()
 
 -- | Sample 'App' that turns on all the lights in a pretty pattern on
@@ -143,6 +146,7 @@ allSide = [side y | y <- [0..7]]
 allColors :: [Color]
 allColors = [RG r g | let l = [Off, Low, Med, High], r <- l, g <- l]
 
+-- | A nice circular pattern.
 nicePattern :: [Event.Data]
 nicePattern = map (\(c, (x, y)) -> makeData c (grid x y)) nicepatternx4
   where
