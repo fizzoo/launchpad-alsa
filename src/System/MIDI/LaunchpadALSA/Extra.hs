@@ -6,8 +6,9 @@ module System.MIDI.LaunchpadALSA.Extra where
 
 import           System.MIDI.LaunchpadALSA
 
-import           Control.Monad             (forever)
+import           Control.Monad              (forever)
 import           Data.Word
+import qualified Sound.ALSA.Sequencer.Event as Event (Data)
 
 -- * Extras & Examples
 
@@ -55,7 +56,7 @@ allColors :: [Color]
 allColors = [RG r g | let l = [Off, Low, Med, High], r <- l, g <- l]
 
 -- | A nice circular pattern.
-nicePattern :: [Data]
+nicePattern :: [Event.Data]
 nicePattern = map (\(c, (x, y)) -> makeData c (grid x y)) nicepatternx4
   where
     nicepatternx4 = nicepatternx2 ++ map (\(c, (x, y)) -> (c, (7-x, y))) nicepatternx2

@@ -17,7 +17,6 @@ module System.MIDI.LaunchpadALSA (
   , Color (..)
   , KeyEvent (..)
   , App
-  , Event.Data
   , grid
   , ungrid
   , side

@@ -25,3 +25,11 @@ app h conn = do
 main = withLaunchpad app
 
 ```
+
+## Install
+
+```shell
+git clone https://github.com/fizzoo/launchpad-alsa
+cd launchpad-alsa
+cabal install
+```
