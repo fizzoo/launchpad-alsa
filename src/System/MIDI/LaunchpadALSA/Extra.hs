@@ -16,28 +16,28 @@ import qualified Sound.ALSA.Sequencer.Event as Event (Data)
 -- the first event, resets all the lights on the second event (key up
 -- most likely), and then quits.
 resetAndLightOnKey :: App
-resetAndLightOnKey h conn = do
-  print  =<< getKey h
-  drawNicePattern h conn
-  print =<< getKey h
-  reset h conn
+resetAndLightOnKey lp = do
+  print  =<< getKey lp
+  drawNicePattern lp
+  print =<< getKey lp
+  reset lp
 
 -- | Sample 'App' that keeps lighting the LEDs on keypresses.
 keepLighting :: App
-keepLighting h conn = forever $ resetAndLightOnKey h conn
+keepLighting lp = forever $ resetAndLightOnKey lp
 
 -- | Sample 'App' that lights up the key that is pressed (except top
 -- buttons since they're unaddressable). Pressing the mixer button exits.
 lightPressed :: App
-lightPressed h conn = do
-  d <- getKey h
+lightPressed lp = do
+  d <- getKey lp
   let cmd = case d of
         Down x y -> if x < 9 then Just $ makeData red (grid x y) else Nothing
         Up x y   -> if x < 9 then Just $ makeData off (grid x y) else Nothing
-  mapM_ (sendData h conn) cmd
+  mapM_ (sendData lp) cmd
   case d of
     Down 9 7 -> return ()
-    _        -> lightPressed h conn
+    _        -> lightPressed lp
 
 -- | Sample main with above 'App'.
 main :: IO ()
@@ -65,11 +65,11 @@ nicePattern = map (\(c, (x, y)) -> makeData c (grid x y)) nicepatternx4
 
 -- | 'App' that draws colors from the centre of the grid.
 drawNicePattern :: App
-drawNicePattern h conn = mapM_ (sendData h conn) nicePattern
+drawNicePattern lp = mapM_ (sendData lp) nicePattern
 
 -- | 'App' that resets all the LEDs.
 reset :: App
-reset h conn = mapM_ (sendData h conn . uncurry makeData) [(off, grid x y) | x <- [0..7], y <- [0..7]]
+reset lp = mapM_ (sendData lp . uncurry makeData) [(off, grid x y) | x <- [0..7], y <- [0..7]]
 
 -- | Basic color green.
 green :: Color

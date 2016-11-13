@@ -16,12 +16,12 @@ import           System.MIDI.LaunchpadALSA
 import           System.MIDI.LaunchpadALSA.Extra (off, red)
 
 app :: App
-app h conn = do
-  sendData h conn $ makeData red (grid 0 0)
-  key <- getKey h
+app lp = do
+  sendData lp $ makeData red (grid 0 0)
+  key <- getKey lp
   case key of
-    Down 9 7 -> sendData h conn $ makeData off (grid 0 0)
-    _        -> app h conn
+    Down 9 7 -> sendData lp $ makeData off (grid 0 0)
+    _        -> app lp
 
 main :: IO ()
 main = withLaunchpad app
