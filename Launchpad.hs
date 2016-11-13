@@ -17,7 +17,7 @@ module LaunchpadALSA where
 import           Control.Applicative              ((<$>))
 import           Control.Monad                    (forever, join, liftM4, void,
                                                    when)
-import           Data.Maybe                       (catMaybes, fromJust, isJust,
+import           Data.Maybe                       (catMaybes, fromJust,
                                                    listToMaybe)
 import           Data.Tuple                       (swap)
 import           Data.Word
@@ -87,6 +87,7 @@ decodeData e = let
 
 
 -- | List all the clients for debug purposes
+-- (From example of ALSA)
 listClients :: IO ()
 listClients = do
   putStrLn " Port    Client name                      Port name"
@@ -175,7 +176,7 @@ lightPressed h conn = do
     Down 9 7 -> return ()
     _        -> lightPressed h conn
 
--- | Sample main with above /app/.
+-- | Sample main with above 'App'.
 main :: IO ()
 main = withLaunchpad lightPressed
 
