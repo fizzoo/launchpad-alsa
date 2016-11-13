@@ -15,9 +15,11 @@
 module LaunchpadALSA where
 
 import           Control.Applicative              ((<$>))
-import           Control.Monad                    (forever, join, liftM4, void)
-import           Data.Maybe                       (catMaybes, fromJust,
+import           Control.Monad                    (forever, join, liftM4, void,
+                                                   when)
+import           Data.Maybe                       (catMaybes, fromJust, isJust,
                                                    listToMaybe)
+import           Data.Tuple                       (swap)
 import           Data.Word
 import qualified Sound.ALSA.Sequencer             as ALSA
 import qualified Sound.ALSA.Sequencer.Client      as Client
@@ -35,14 +37,20 @@ data Intensity = Off | Low | Med | High deriving (Show)
 -- | A color, in intensity of red and green.
 data Color = RG Intensity Intensity deriving (Show)
 
--- | Key for the grid where x,y in 0..7, corresponding to x,y from top-left corner.
+-- | A key that was pressed on the launchpad.
+-- x, y is like in grid/ungrid, but top buttons have x of 9.
+data KeyEvent = Down Word8 Word8 | Up Word8 Word8 deriving (Show)
+
+-- | Key for the grid where x,y in 0..7, corresponding to x,y from
+-- top-left corner.  If x is 8 the y corresponds to the side buttons
+-- instead.  No available mapping for the top buttons afaik.
 grid ::  Word8 -> Word8 -> Word8
-grid x y | x > 7 || y > 7 = error "Button outside bounds [0..7]"
+grid x y | x > 8 || y > 7 = error "Button outside bounds x in [0..8], y in [0..7]"
 grid x y = 16 * y + x
 
--- | Key for the side buttons. No available mapping for the top buttons afaik.
+-- | Key for side button.
 side :: Word8 -> Word8
-side y = 16 * y + 8
+side = grid 8
 
 -- | Create a sendable piece of data.
 makeData
@@ -54,6 +62,29 @@ makeData color key = Event.NoteEv Event.NoteOn $ Event.simpleNote (Event.Channel
 -- | Send data on connection.
 sendData :: ALSA.T ALSA.DuplexMode -> Connect.T -> Event.Data -> IO ()
 sendData h conn eData = void $ Event.outputDirect (h :: ALSA.T ALSA.DuplexMode) (Event.forConnection conn eData)
+
+-- | Gets the x and y positions from a key.
+ungrid :: Word8 -> (Word8, Word8)
+ungrid key = swap $ divMod key 16
+
+-- | Decode the Event into a KeyEvent.
+decodeData :: Event.T -> KeyEvent
+decodeData e = let
+    body = Event.body e
+    normalizectrl a = (a - 104) * 16 + 9
+    pitch = case body of
+      Event.NoteEv _ a -> Event.unPitch $ Event.noteNote a
+      Event.CtrlEv _ a -> fromIntegral $ normalizectrl $ Event.unParameter $ Event.ctrlParam a
+      _                -> error "Weird button pressed"
+    vel = case body of
+      Event.NoteEv _ a -> Event.unVelocity $ Event.noteVelocity a
+      Event.CtrlEv _ a -> fromIntegral $ Event.unValue $ Event.ctrlValue a
+      _                -> error "Weird button pressed"
+    (x, y) = ungrid pitch
+    in if vel > 64
+       then Down x y
+       else Up x y
+
 
 -- | List all the clients for debug purposes
 listClients :: IO ()
@@ -121,18 +152,32 @@ type App = ALSA.T ALSA.DuplexMode -> Connect.T -> IO ()
 -- most likely), and then quits.
 resetAndLightOnKey :: App
 resetAndLightOnKey h conn = do
-  print =<< Event.input h
+  print . decodeData =<< Event.input h
   drawNicePattern h conn
-  print =<< Event.input h
+  print . decodeData =<< Event.input h
   reset h conn
 
 -- | Sample 'App' that keeps lighting the LEDs on keypresses.
 keepLighting :: App
 keepLighting h conn = forever $ resetAndLightOnKey h conn
 
+-- | Sample 'App' that lights up the key that is pressed (except top
+-- buttons since they're unaddressable). Pressing the mixer button exits.
+lightPressed :: App
+lightPressed h conn = do
+  inp <- Event.input h
+  let d = decodeData inp
+      cmd = case d of
+        Down x y -> if x < 9 then Just $ makeData red (grid x y) else Nothing
+        Up x y   -> if x < 9 then Just $ makeData off (grid x y) else Nothing
+  mapM_ (sendData h conn) cmd
+  case d of
+    Down 9 7 -> return ()
+    _        -> lightPressed h conn
+
 -- | Sample main with above /app/.
 main :: IO ()
-main = withLaunchpad keepLighting
+main = withLaunchpad lightPressed
 
 -- | Keys for all the grid buttons.
 allGrid :: [Word8]
