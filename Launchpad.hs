@@ -111,11 +111,21 @@ findLaunchpad h = do
 -- the given parameters instead, in order to keep the connection open.
 withLaunchpad :: (ALSA.T ALSA.DuplexMode -> Connect.T -> IO ()) -> IO ()
 withLaunchpad f =
-  ALSA.withDefault ALSA.Block $ \h -> -- Initialize our client, h is Mode
-    Port.withSimple h "self" (Port.caps [Port.capRead, Port.capSubsRead]) Port.typeMidiGeneric $ \selfP -> do --port for self
+  ALSA.withDefault ALSA.Block $ \h -> do -- Initialize our client, h is Mode
+    Port.withSimple h "self" (Port.caps [Port.capRead, Port.capWrite]) Port.typeMidiGeneric $ \selfP -> do --port for self
       maybePinfo <- findLaunchpad h
       let pinfo = fromJust maybePinfo -- info of launchpad
       addr <- PortInfo.getAddr pinfo
-      conn <- Connect.createTo h selfP addr
-      f h conn
-      return ()
+      Connect.withTo h selfP addr $ \conn ->
+        Connect.withFrom h selfP addr $ \_ ->
+          f h conn
+    return ()
+
+
+resetandlightonkey h conn = do
+  print =<< Event.input h
+  donicething h conn
+  print =<< Event.input h
+  reset h conn
+
+main = withLaunchpad resetandlightonkey
