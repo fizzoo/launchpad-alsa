@@ -12,7 +12,22 @@
 -- therefore always fix that. Sometimes waiting for a few seconds
 -- seems to work also. I suspect this is more annoying while debugging
 -- than it will be in use.
-module System.MIDI.LaunchpadALSA where
+module System.MIDI.LaunchpadALSA (
+  Intensity (..)
+  , Color (..)
+  , KeyEvent (..)
+  , App
+  , Event.Data
+  , grid
+  , ungrid
+  , side
+  , makeData
+  , sendData
+  , getKey
+  , listClients
+  , findLaunchpad
+  , withLaunchpad
+  ) where
 
 import           Control.Applicative              ((<$>))
 import           Control.Monad                    (join, liftM4, void)
@@ -40,6 +55,10 @@ data Color = RG Intensity Intensity deriving (Show)
 -- x, y is like in grid/ungrid, but top buttons have x of 9.
 data KeyEvent = Down Word8 Word8 | Up Word8 Word8 deriving (Show)
 
+-- | Type that withLaunchpad accepts, an IO action that also uses the
+-- created handle and connection.
+type App = ALSA.T ALSA.DuplexMode -> Connect.T -> IO ()
+
 -- | Key for the grid where x,y in 0..7, corresponding to x,y from
 -- top-left corner.  If x is 8 the y corresponds to the side buttons
 -- instead.  No available mapping for the top buttons afaik.
@@ -61,6 +80,10 @@ makeData color key = Event.NoteEv Event.NoteOn $ Event.simpleNote (Event.Channel
 -- | Send data on connection.
 sendData :: ALSA.T ALSA.DuplexMode -> Connect.T -> Event.Data -> IO ()
 sendData h conn eData = void $ Event.outputDirect (h :: ALSA.T ALSA.DuplexMode) (Event.forConnection conn eData)
+
+-- | Wait for a keypress and then return it.
+getKey :: ALSA.T ALSA.DuplexMode -> IO KeyEvent
+getKey h = decodeData <$> Event.input h
 
 -- | Gets the x and y positions from a key.
 ungrid :: Word8 -> (Word8, Word8)
@@ -109,11 +132,6 @@ findLaunchpad h = do
         name <- ClientInfo.getName cinfo
         return $ if name == "Launchpad" then Just pinfo else Nothing
   return . listToMaybe $ catMaybes (concat l)
-
-
--- | Type that withLaunchpad accepts, an IO action that also uses the
--- created handle and connection.
-type App = ALSA.T ALSA.DuplexMode -> Connect.T -> IO ()
 
 -- | Finds the launchpad, and executes f with a client handle and
 -- connection. Could be used for one-shots, but it recreates a client

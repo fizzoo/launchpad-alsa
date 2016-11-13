@@ -1,11 +1,13 @@
 -- | Samples and other extras for LaunchpadALSA
+--
+-- You will want to import qualified or otherwise only what you want
+-- since main is defined, amongst other things.
 module System.MIDI.LaunchpadALSA.Extra where
 
 import           System.MIDI.LaunchpadALSA
 
-import           Control.Monad              (forever)
+import           Control.Monad             (forever)
 import           Data.Word
-import qualified Sound.ALSA.Sequencer.Event as Event
 
 -- * Extras & Examples
 
@@ -14,9 +16,9 @@ import qualified Sound.ALSA.Sequencer.Event as Event
 -- most likely), and then quits.
 resetAndLightOnKey :: App
 resetAndLightOnKey h conn = do
-  print . decodeData =<< Event.input h
+  print  =<< getKey h
   drawNicePattern h conn
-  print . decodeData =<< Event.input h
+  print =<< getKey h
   reset h conn
 
 -- | Sample 'App' that keeps lighting the LEDs on keypresses.
@@ -27,9 +29,8 @@ keepLighting h conn = forever $ resetAndLightOnKey h conn
 -- buttons since they're unaddressable). Pressing the mixer button exits.
 lightPressed :: App
 lightPressed h conn = do
-  inp <- Event.input h
-  let d = decodeData inp
-      cmd = case d of
+  d <- getKey h
+  let cmd = case d of
         Down x y -> if x < 9 then Just $ makeData red (grid x y) else Nothing
         Up x y   -> if x < 9 then Just $ makeData off (grid x y) else Nothing
   mapM_ (sendData h conn) cmd
@@ -54,7 +55,7 @@ allColors :: [Color]
 allColors = [RG r g | let l = [Off, Low, Med, High], r <- l, g <- l]
 
 -- | A nice circular pattern.
-nicePattern :: [Event.Data]
+nicePattern :: [Data]
 nicePattern = map (\(c, (x, y)) -> makeData c (grid x y)) nicepatternx4
   where
     nicepatternx4 = nicepatternx2 ++ map (\(c, (x, y)) -> (c, (7-x, y))) nicepatternx2
