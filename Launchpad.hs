@@ -7,7 +7,9 @@
 module LaunchpadALSA where
 
 import           Control.Applicative              ((<$>))
-import           Control.Monad                    (join, liftM4)
+import           Control.Concurrent
+import           Control.Monad                    (forever, join, liftM4)
+import           Control.Monad.IO.Class           (liftIO)
 import           Data.Maybe                       (catMaybes, fromJust,
                                                    listToMaybe)
 import           Data.Word
@@ -19,6 +21,7 @@ import qualified Sound.ALSA.Sequencer.Connect     as Connect
 import qualified Sound.ALSA.Sequencer.Event       as Event
 import qualified Sound.ALSA.Sequencer.Port        as Port
 import qualified Sound.ALSA.Sequencer.Port.Info   as PortInfo
+import qualified Sound.ALSA.Sequencer.Subscribe   as Subscribe
 import           Text.Printf                      (printf)
 
 
@@ -43,9 +46,9 @@ nicepatternx2 = nicepattern ++ map (\(c, (x, y)) -> (c, (7-x, 7-y))) nicepattern
 nicepatternx4 = nicepatternx2 ++ map (\(c, (x, y)) -> (c, (7-x, y))) nicepatternx2
 nicemessage = map (\(c, (x, y)) -> makeData c (grid x y)) nicepatternx4
 donicething = \h conn -> (mapM_ (sendData h conn) nicemessage)
-reset = \h conn -> (mapM_ (sendData h conn . uncurry makeData) [(off, grid x y) | x <- [0..7], y <- [0..7]])
+reset = \h conn -> (mapM_ (sendData h conn . uncurry makeData) $ [(off, side y) | y <- [0..7]] ++ [(off, grid x y) | x <- [0..7], y <- [0..7]])
 one :: Mode -> Connect.T -> IO ()
-one = \h conn -> ((sendData h conn . uncurry makeData) ((red, side 1)) >> return ())
+one = \h conn -> ((sendData h conn . uncurry makeData) (red, side 1) >> return ())
 
 green :: Color
 green = RG Off High
@@ -79,6 +82,13 @@ makeData
   -> Event.Data -- ^ Ready for sending by 'sendData'
 makeData color key = Event.NoteEv Event.NoteOn $ Event.simpleNote (Event.Channel 144) (Event.Pitch key) (Event.Velocity $ colorToCode color)
 
+cc a b = Event.CtrlEv Event.Controller $ Event.Ctrl (Event.Channel 176) (Event.Parameter a) (Event.Value b)
+ccs = Event.AddrEv Event.ClientStart
+cce = Event.AddrEv Event.ClientExit
+
+noteOn a b = Event.NoteEv Event.NoteOn $ Event.simpleNote (Event.Channel 144) (Event.Pitch a) (Event.Velocity b)
+noteOff a b = Event.NoteEv Event.NoteOff $ Event.simpleNote (Event.Channel 144) (Event.Pitch a) (Event.Velocity b)
+
 -- | List all the clients for debug purposes
 listClients :: IO ()
 listClients = do
@@ -110,12 +120,69 @@ findLaunchpad h = do
 -- and gets the connection with each call. Compose your main to use
 -- the given parameters instead, in order to keep the connection open.
 withLaunchpad :: (ALSA.T ALSA.DuplexMode -> Connect.T -> IO ()) -> IO ()
-withLaunchpad f =
+withLaunchpad f = do
   ALSA.withDefault ALSA.Block $ \h -> -- Initialize our client, h is Mode
-    Port.withSimple h "self" (Port.caps [Port.capRead, Port.capSubsRead]) Port.typeMidiGeneric $ \selfP -> do --port for self
+    Port.withSimple h "LaunchpadALSA" (Port.caps [Port.capWrite, Port.capSubsWrite, Port.capRead, Port.capSubsRead]) Port.typeApplication $ \s -> do --port for self
       maybePinfo <- findLaunchpad h
       let pinfo = fromJust maybePinfo -- info of launchpad
-      addr <- PortInfo.getAddr pinfo
-      conn <- Connect.createTo h selfP addr
-      f h conn
-      return ()
+      a <- PortInfo.getAddr pinfo
+      ourinfo <- PortInfo.get h s
+      oura <- PortInfo.getAddr ourinfo
+      -- conn <- Connect.createTo h s a
+      -- reset h conn
+      -- threadDelay 300000
+      Subscribe.subscribe h a oura True Nothing
+      Subscribe.subscribe h oura a True Nothing
+      Event.dropInput h
+
+      let conn = Connect.toSubscribers a
+
+      sendData h conn (ccs a)
+      mapM_ (sendData h conn) resetMsg
+
+      print 1
+      reset h conn
+      print 2
+      print =<< Event.input h
+      print 3
+      donicething h conn
+      print 4
+      print =<< Event.input h
+      print 5
+      reset h conn
+      print 6
+
+      Event.dropInput h
+      -- threadDelay 300000
+      -- Connect.deleteFrom h s a
+      b <- sendData h conn (cce a)
+      print b
+      Subscribe.unsubscribe h a oura
+      Subscribe.unsubscribe h oura a
+  threadDelay 300000
+  return ()
+
+
+resetMsg =
+  [ cc 0 2, noteOn 64 12       -- just do something with both cc and noteon
+  , cc 0 1, noteOn 0  12
+  , noteOff 0 0                -- just to be safe??????
+  , cc 0 0                     -- reset
+  , cc 0 48                    -- double buffering control
+  ]
+
+
+getInput h _ = liftIO $ print =<< Event.input h
+
+
+keythendonice h conn = do
+  print =<< Event.input h
+  donicething h conn
+  print =<< Event.input h
+
+keythenreset h conn = do
+  print =<< Event.input h
+  reset h conn
+  print =<< Event.input h
+
+main = withLaunchpad undefined
