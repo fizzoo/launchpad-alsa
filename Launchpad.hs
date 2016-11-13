@@ -1,3 +1,11 @@
+-- | Interface to the novation Launchpad through ALSA.
+--
+-- Unfortunately, the reset, turn on all LED and double buffering keys
+-- etcetera seems to require ugly hacks and occasionally doesn't
+-- work. Fortunately, this means that the interface is really simple
+-- and it should be possible to get up and running very quickly.
+module LaunchpadALSA where
+
 import           Control.Applicative              ((<$>))
 import           Control.Monad                    (join, liftM4)
 import           Data.Maybe                       (catMaybes, fromJust,
@@ -33,12 +41,11 @@ allColors = [RG r g | let l = [Off, Low, Med, High], r <- l, g <- l]
 nicepattern = zip allColors [(x, y) | x <- [0..3], y <- [0..3]]
 nicepatternx2 = nicepattern ++ map (\(c, (x, y)) -> (c, (7-x, 7-y))) nicepattern
 nicepatternx4 = nicepatternx2 ++ map (\(c, (x, y)) -> (c, (7-x, y))) nicepatternx2
-nicemessage = map (\(c, (x, y)) -> messageToData $ LED c x y) nicepatternx4
+nicemessage = map (\(c, (x, y)) -> makeData c (grid x y)) nicepatternx4
 donicething = \h conn -> (mapM_ (sendData h conn) nicemessage)
-reset = \h conn -> (mapM_ (sendData h conn . messageToData) [LED off x y | x <- [0..7], y <- [0..7]])
-
-sendreset = \h conn -> (sendData h conn . messageToData $ Reset) >> return ()
-allled = \h conn -> sendData h conn (ctrlData 125) >> return ()
+reset = \h conn -> (mapM_ (sendData h conn . uncurry makeData) [(off, grid x y) | x <- [0..7], y <- [0..7]])
+one :: Mode -> Conn.T -> IO ()
+one = \h conn -> ((sendData h conn . uncurry makeData) ((red, side 1)) >> return ())
 
 green :: Color
 green = RG Off High
@@ -61,24 +68,17 @@ side y = 16 * y + 8
 allgrid :: [Word8]
 allgrid = [grid x y | x <- [0..7], y <- [0..7]] :: [Word8]
 
--- The acceptable messages
--- Todo control double-buff/flashing
--- https://d19ulaff0trnck.cloudfront.net/sites/default/files/novation/downloads/4080/launchpad-programmers-reference.pdf
-data Message = LED Color Word8 Word8 | Reset | Flip0 | Flip1
 
--- reset/flip doesnt work. Might be due to reconnecting thing.
-noteData :: Word8 -> Word8 -> E.Data
-noteData x y = E.NoteEv E.NoteOn $ E.simpleNote (E.Channel 144) (E.Pitch x) (E.Velocity y)
-ctrlData x     = E.NoteEv E.NoteOn $ E.simpleNote (E.Channel 176) (E.Pitch 0) (E.Velocity x)
--- ctrlData x     = E.CtrlEv E.ChanPress $ E.Ctrl (E.Channel 1) (E.Parameter 0) (E.Value x)
+sendData h conn eData = E.outputDirect (h :: Mode) (E.forConnection conn eData)
 
-messageToData :: Message -> E.Data
-messageToData (LED col x y) = noteData (grid x y) (colorToCode col)
-messageToData Reset         = ctrlData 0
-messageToData Flip0         = ctrlData 49
-messageToData Flip1         = ctrlData 52
+-- | Create a sendable piece of data.
+makeData
+  :: Color -- ^ A color from Color
+  -> Word8 -- ^ Key made by 'grid' or 'side'
+  -> E.Data -- ^ Ready for sending by 'sendData'
+makeData color key = E.NoteEv E.NoteOn $ E.simpleNote (E.Channel 144) (E.Pitch key) (E.Velocity $ colorToCode color)
 
--- List all the clients for debug
+-- | List all the clients for debug purposes
 listClients :: IO ()
 listClients = do
   putStrLn " Port    Client name                      Port name"
@@ -92,7 +92,7 @@ listClients = do
           (ClientInfo.getName cinfo)
           (PortInfo.getName pinfo)
 
--- Finds the launchpad if it exists, by our client handle h
+-- | Finds the launchpad if it exists, by our client handle h
 findLaunchpad :: Mode -> IO (Maybe PortInfo.T)
 findLaunchpad h = do
   l <- ClientInfo.queryLoop (h :: Mode) $ \cinfo -> do
@@ -104,12 +104,10 @@ findLaunchpad h = do
 
 
 
-sendData h conn eData = E.outputDirect (h :: Mode) (E.forConnection conn eData)
-
--- Finds the launchpad, and executes f with a client handle and
+-- | Finds the launchpad, and executes f with a client handle and
 -- connection. Could be used for one-shots, but it recreates a client
 -- and gets the connection with each call. Compose your main to use
--- the given parameters instead, in order to keep it open.
+-- the given parameters instead, in order to keep the connection open.
 withLaunchpad :: (S.T S.DuplexMode -> Conn.T -> IO ()) -> IO ()
 withLaunchpad f =
   S.withDefault S.Block $ \h -> -- Initialize our client, h is Mode
@@ -120,6 +118,3 @@ withLaunchpad f =
       conn <- Conn.createTo h selfP addr
       f h conn
       return ()
-
-
-main = return ()
