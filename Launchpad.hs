@@ -11,18 +11,18 @@ import           Control.Monad                    (join, liftM4)
 import           Data.Maybe                       (catMaybes, fromJust,
                                                    listToMaybe)
 import           Data.Word
-import qualified Sound.ALSA.Sequencer             as S
-import qualified Sound.ALSA.Sequencer.Address     as A
-import qualified Sound.ALSA.Sequencer.Client      as C
+import qualified Sound.ALSA.Sequencer             as ALSA
+import qualified Sound.ALSA.Sequencer.Address     as Address
+import qualified Sound.ALSA.Sequencer.Client      as Client
 import qualified Sound.ALSA.Sequencer.Client.Info as ClientInfo
-import qualified Sound.ALSA.Sequencer.Connect     as Conn
-import qualified Sound.ALSA.Sequencer.Event       as E
-import qualified Sound.ALSA.Sequencer.Port        as P
+import qualified Sound.ALSA.Sequencer.Connect     as Connect
+import qualified Sound.ALSA.Sequencer.Event       as Event
+import qualified Sound.ALSA.Sequencer.Port        as Port
 import qualified Sound.ALSA.Sequencer.Port.Info   as PortInfo
 import           Text.Printf                      (printf)
 
 
-type Mode = S.T S.DuplexMode
+type Mode = ALSA.T ALSA.DuplexMode
 
 data Intensity = Off | Low | Med | High deriving (Show)
 data Color = RG Intensity Intensity deriving (Show)
@@ -44,7 +44,7 @@ nicepatternx4 = nicepatternx2 ++ map (\(c, (x, y)) -> (c, (7-x, y))) nicepattern
 nicemessage = map (\(c, (x, y)) -> makeData c (grid x y)) nicepatternx4
 donicething = \h conn -> (mapM_ (sendData h conn) nicemessage)
 reset = \h conn -> (mapM_ (sendData h conn . uncurry makeData) [(off, grid x y) | x <- [0..7], y <- [0..7]])
-one :: Mode -> Conn.T -> IO ()
+one :: Mode -> Connect.T -> IO ()
 one = \h conn -> ((sendData h conn . uncurry makeData) ((red, side 1)) >> return ())
 
 green :: Color
@@ -69,26 +69,27 @@ allgrid :: [Word8]
 allgrid = [grid x y | x <- [0..7], y <- [0..7]] :: [Word8]
 
 
-sendData h conn eData = E.outputDirect (h :: Mode) (E.forConnection conn eData)
+sendData :: Mode -> Connect.T -> Event.Data -> IO Word
+sendData h conn eData = Event.outputDirect (h :: Mode) (Event.forConnection conn eData)
 
 -- | Create a sendable piece of data.
 makeData
-  :: Color -- ^ A color from Color
+  :: Color -- ^ Address color from Color
   -> Word8 -- ^ Key made by 'grid' or 'side'
-  -> E.Data -- ^ Ready for sending by 'sendData'
-makeData color key = E.NoteEv E.NoteOn $ E.simpleNote (E.Channel 144) (E.Pitch key) (E.Velocity $ colorToCode color)
+  -> Event.Data -- ^ Ready for sending by 'sendData'
+makeData color key = Event.NoteEv Event.NoteOn $ Event.simpleNote (Event.Channel 144) (Event.Pitch key) (Event.Velocity $ colorToCode color)
 
 -- | List all the clients for debug purposes
 listClients :: IO ()
 listClients = do
   putStrLn " Port    Client name                      Port name"
-  S.withDefault S.Block $ \h ->
+  ALSA.withDefault ALSA.Block $ \h ->
     ClientInfo.queryLoop_ (h :: Mode) $ \cinfo -> do
       client <- ClientInfo.getClient cinfo
       PortInfo.queryLoop_ h client $ \pinfo ->
         join $ liftM4 (printf "%3d:%-3d  %-32.32s %s\n")
-          ((\(C.Cons p) -> p) <$> PortInfo.getClient pinfo)
-          ((\(P.Cons p) -> p) <$> PortInfo.getPort pinfo)
+          ((\(Client.Cons p) -> p) <$> PortInfo.getClient pinfo)
+          ((\(Port.Cons p) -> p) <$> PortInfo.getPort pinfo)
           (ClientInfo.getName cinfo)
           (PortInfo.getName pinfo)
 
@@ -108,13 +109,13 @@ findLaunchpad h = do
 -- connection. Could be used for one-shots, but it recreates a client
 -- and gets the connection with each call. Compose your main to use
 -- the given parameters instead, in order to keep the connection open.
-withLaunchpad :: (S.T S.DuplexMode -> Conn.T -> IO ()) -> IO ()
+withLaunchpad :: (ALSA.T ALSA.DuplexMode -> Connect.T -> IO ()) -> IO ()
 withLaunchpad f =
-  S.withDefault S.Block $ \h -> -- Initialize our client, h is Mode
-    P.withSimple h "self" (P.caps [P.capRead, P.capSubsRead]) P.typeMidiGeneric $ \selfP -> do --port for self
+  ALSA.withDefault ALSA.Block $ \h -> -- Initialize our client, h is Mode
+    Port.withSimple h "self" (Port.caps [Port.capRead, Port.capSubsRead]) Port.typeMidiGeneric $ \selfP -> do --port for self
       maybePinfo <- findLaunchpad h
       let pinfo = fromJust maybePinfo -- info of launchpad
       addr <- PortInfo.getAddr pinfo
-      conn <- Conn.createTo h selfP addr
+      conn <- Connect.createTo h selfP addr
       f h conn
       return ()
