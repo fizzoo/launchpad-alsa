@@ -54,9 +54,15 @@ data Color = RG Intensity Intensity deriving (Show)
 -- x, y is like in grid/ungrid, but top buttons have x of 9.
 data KeyEvent = Down Word8 Word8 | Up Word8 Word8 deriving (Show)
 
+-- | The information necessary to get and send data to launchpad.
+-- Nicer alias for the cases where you have a function that gets keys
+-- and returns some data depending on that, i.e. -> IO a.
+type LaunchpadConnection = (ALSA.T ALSA.DuplexMode, Connect.T)
+
 -- | Type that withLaunchpad accepts, an IO action that also uses the
 -- created handle and connection.
-type App = (ALSA.T ALSA.DuplexMode, Connect.T) -> IO ()
+type App = LaunchpadConnection -> IO ()
+
 
 -- | Key for the grid where x,y in 0..7, corresponding to x,y from
 -- top-left corner.  If x is 8 the y corresponds to the side buttons
